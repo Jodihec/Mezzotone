@@ -14,3 +14,4 @@ go test ./...
 
 echo ""
 echo "✅ Tests passed. Proceeding with push."
+echo ""
