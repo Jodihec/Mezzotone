@@ -7,11 +7,16 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/google/uuid"
 )
 
 func TestMezzotoneModelExportSavesRenderedContentToHome(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	fixedUUID := uuid.MustParse("41c92b29-4eb7-4f33-bf3c-8a3d29efe330")
+	previousNewUUID := newUUID
+	newUUID = func() uuid.UUID { return fixedUUID }
+	t.Cleanup(func() { newUUID = previousNewUUID })
 
 	m := NewMezzotoneModel()
 	m.currentActiveMenu = renderViewText
@@ -20,7 +25,12 @@ func TestMezzotoneModelExportSavesRenderedContentToHome(t *testing.T) {
 
 	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
 
-	exportPath := filepath.Join(tmpHome, "dat2")
+	exportPath := filepath.Join(tmpHome, "Mezzotone_"+fixedUUID.String()+".txt")
+	t.Cleanup(func() {
+		if err := os.Remove(exportPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove exported file %q: %v", exportPath, err)
+		}
+	})
 	got, err := os.ReadFile(exportPath)
 	if err != nil {
 		t.Fatalf("expected exported file at %q, got read error: %v", exportPath, err)
