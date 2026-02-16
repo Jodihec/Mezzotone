@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/google/uuid"
 	"golang.design/x/clipboard"
 )
 
@@ -51,6 +52,7 @@ type styleVariables struct {
 
 var renderSettingsItemsSize int
 var clipboardOK bool
+var newUUID = uuid.New
 
 const (
 	filePickerMenu = iota
@@ -167,7 +169,8 @@ func (m *MezzotoneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "e":
 			if m.currentActiveMenu == renderViewText {
 				homeDir, err := os.UserHomeDir()
-				path := filepath.Join(homeDir, "dat2")
+				generatedUuid := newUUID()
+				path := filepath.Join(homeDir, "Mezzotone_"+generatedUuid.String()+".txt")
 				f, err := os.Create(path)
 				if err != nil {
 					m.updateMessageViewPortContent("⚠ "+err.Error(), true)
