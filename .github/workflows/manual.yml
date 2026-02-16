@@ -17,5 +17,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install system deps (X11 headers for golang.design/x/clipboard)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev
+
       - name: Test
         run: go test ./...
