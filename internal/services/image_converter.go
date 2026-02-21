@@ -10,7 +10,6 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
-	"os"
 
 	_ "golang.org/x/image/bmp"
 	_ "golang.org/x/image/tiff"
@@ -79,22 +78,8 @@ const rectanglesRampBrightToDarkStr = " ░▒▓█"
 const barsRampBrightToDarkStr = " ▁▂▃▄▅▆▇█"
 const loadingRampBrightToDarkStr = " ⣀⣄⣆⣇⣧⣷⣿"
 
-func ConvertImageToString(filePath string, renderOptions RenderOptions) ([][]rune, error) {
+func ConvertImageToString(inputImg image.Image, renderOptions RenderOptions) ([][]rune, error) {
 	var outputChars [][]rune
-
-	f, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
-	_ = Logger().Info(fmt.Sprintf("Successfully Loaded: %s", filePath))
-
-	inputImg, format, err := image.Decode(f)
-	if err != nil {
-		return nil, err
-	}
-	_ = Logger().Info(fmt.Sprintf("format: %s", format))
 
 	// Compute grid resolution (cols x rows) based on image size + character cell size.
 	cols, rows := getColsAndRows(inputImg, renderOptions.textSize, renderOptions.fontAspect)
@@ -118,7 +103,7 @@ func ConvertImageToString(filePath string, renderOptions RenderOptions) ([][]run
 	if err != nil {
 		return nil, err
 	}
-	_ = Logger().Info(fmt.Sprintf("Successfully Build LumaGrid for %s", filePath))
+	_ = Logger().Info(fmt.Sprintf("Successfully Build LumaGrid"))
 
 	edgeThreshold := 0.0
 	edgeInfos := make([][]edgeInfo, 0)
