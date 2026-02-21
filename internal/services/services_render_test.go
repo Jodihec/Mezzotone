@@ -1,6 +1,8 @@
 package services_test
 
 import (
+	"image"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -27,7 +29,18 @@ func mustRenderOptions(
 
 func mustConvertImageToString(t *testing.T, imagePath string, opts services.RenderOptions) string {
 	t.Helper()
-	out, err := services.ConvertImageToString(imagePath, opts)
+	f, err := os.Open(imagePath)
+	if err != nil {
+		t.Fatalf("failed opening image: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	inputImg, _, err := image.Decode(f)
+	if err != nil {
+		t.Fatalf("failed decoding image: %v", err)
+	}
+
+	out, err := services.ConvertImageToString(inputImg, opts)
 	if err != nil {
 		t.Fatalf("conversion failed: %v", err)
 	}
@@ -119,11 +132,9 @@ func TestConvertImageToStringOptionVariantsChangeOutput(t *testing.T) {
 }
 
 func TestConvertImageToStringFileErrors(t *testing.T) {
-	validOpts := mustRenderOptions(t, 8, 2.0, false, 0.6, false, false, "ASCII")
-
 	t.Run("missing file returns error", func(t *testing.T) {
 		missingPath := filepath.Join("testdata", "does-not-exist.png")
-		_, err := services.ConvertImageToString(missingPath, validOpts)
+		_, err := os.Open(missingPath)
 		if err == nil {
 			t.Fatalf("expected error for missing file")
 		}
@@ -131,7 +142,13 @@ func TestConvertImageToStringFileErrors(t *testing.T) {
 
 	t.Run("corrupt file returns decode error", func(t *testing.T) {
 		corruptPath := ensureCorruptFixture(t)
-		_, err := services.ConvertImageToString(corruptPath, validOpts)
+		f, err := os.Open(corruptPath)
+		if err != nil {
+			t.Fatalf("failed opening corrupt fixture: %v", err)
+		}
+		defer func() { _ = f.Close() }()
+
+		_, _, err = image.Decode(f)
 		if err == nil {
 			t.Fatalf("expected error for corrupt image")
 		}

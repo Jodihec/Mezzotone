@@ -3,9 +3,15 @@ package app
 import (
 	"bufio"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/gif"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/JoaoGarcia/Mezzotone/internal/services"
 	"github.com/JoaoGarcia/Mezzotone/internal/termtext"
@@ -21,7 +27,10 @@ import (
 
 // TODO REORDER Layout IF TERMINAL width < height
 // FIXME for some fontsize image gets cut on right side
-// TODO image preview on selected file if applicable
+// TODO image preview on selected file (maybe ?)
+// TODO maybe add fullscreenish to renderview
+// TODO add color toggle (current is no color)
+// todo make it ⭐prettier⭐
 
 type MezzotoneModel struct {
 	filePicker   filepicker.Model
@@ -38,6 +47,8 @@ type MezzotoneModel struct {
 	helpVisible       bool
 	helpPreviousMenu  int
 	renderContent     string
+
+	gifAnimation ui.AnimationRenderer
 
 	width  int
 	height int
@@ -129,6 +140,18 @@ func (m *MezzotoneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	switch msg := msg.(type) {
+	case ui.TickMsg:
+		if !m.gifAnimation.IsAnimationPlaying() {
+			return m, nil
+		}
+		var c tea.Cmd
+		m.gifAnimation, c = m.gifAnimation.Update(msg)
+		if !m.helpVisible {
+			m.renderContent = m.gifAnimation.View()
+			m.renderView.SetContent(m.renderContent)
+		}
+		return m, c
+
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 
@@ -237,12 +260,72 @@ func (m *MezzotoneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if err != nil {
 						m.updateMessageViewPortContent("⚠ "+err.Error(), true)
 					}
-					runeArray, err := services.ConvertImageToString(m.selectedFile, normalizedOptions)
+
+					f, err := os.Open(m.selectedFile)
 					if err != nil {
 						m.updateMessageViewPortContent("⚠ "+err.Error(), true)
+						return m, cmd
 					}
+					defer func() { _ = f.Close() }()
+
+					_ = services.Logger().Info(fmt.Sprintf("Successfully Loaded: %s", m.selectedFile))
+
+					if IsGIF(m.selectedFile) {
+						frameArray, delays, err := SplitAnimatedGIF(f)
+						if err != nil {
+							m.updateMessageViewPortContent("⚠ "+err.Error(), true)
+							return m, cmd
+						}
+
+						var gifRuneArrays [][][]rune
+						for _, frame := range frameArray {
+							runeArray, err := services.ConvertImageToString(frame, normalizedOptions)
+							if err != nil {
+								m.updateMessageViewPortContent("⚠ "+err.Error(), true)
+								return m, cmd
+							}
+							gifRuneArrays = append(gifRuneArrays, runeArray)
+						}
+
+						var animationFrames []ui.AnimationFrame
+						for i, frameRuneArray := range gifRuneArrays {
+							animationFrames = append(
+								animationFrames,
+								ui.AnimationFrame{
+									Frame:    services.ImageRuneArrayIntoString(frameRuneArray),
+									Duration: time.Duration(delays[i]) * 10 * time.Millisecond,
+								},
+							)
+						}
+						_ = services.Logger().Info(fmt.Sprintf("%s", m.renderContent))
+
+						var escapeKeys []string
+						escapeKeys = append(escapeKeys, "esc")
+						gifAnimation := ui.NewAnimationRenderer(animationFrames, escapeKeys)
+
+						m.gifAnimation = gifAnimation
+
+						return m, m.gifAnimation.StartAnimation
+					}
+
+					// else is Image
+					inputImg, format, err := image.Decode(f)
+					if err != nil {
+						m.updateMessageViewPortContent("⚠ "+err.Error(), true)
+						return m, cmd
+					}
+					_ = services.Logger().Info(fmt.Sprintf("format: %s", format))
+
+					runeArray, err := services.ConvertImageToString(inputImg, normalizedOptions)
+					if err != nil {
+						m.updateMessageViewPortContent("⚠ "+err.Error(), true)
+						return m, cmd
+					}
+
+					m.gifAnimation.StopAnimation()
 					m.renderContent = services.ImageRuneArrayIntoString(runeArray)
 					_ = services.Logger().Info(fmt.Sprintf("%s", m.renderContent))
+
 					if !m.helpVisible {
 						m.renderView.SetContent(m.renderContent)
 					}
@@ -272,11 +355,13 @@ func (m *MezzotoneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "pgdown":
 			if m.currentActiveMenu == renderOptionsMenu {
 				m.renderSettings.SetActive(renderSettingsItemsSize)
+				m.renderSettings.Confirm = true
 				return m, cmd
 			}
 		case "pgup":
 			if m.currentActiveMenu == renderOptionsMenu {
-				m.renderSettings.SetActive(renderSettingsItemsSize)
+				m.renderSettings.SetActive(0)
+				m.renderSettings.Confirm = false
 				return m, cmd
 			}
 		}
@@ -441,3 +526,102 @@ func (m *MezzotoneModel) updateMessageViewPortContent(messageViewContent string,
 		),
 	)
 }
+
+// GIF LOGIC //
+
+func IsGIF(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	_, format, err := image.DecodeConfig(f)
+	if err != nil {
+		return false
+	}
+
+	return format == "gif"
+}
+
+// SplitAnimatedGIF decodes an animated GIF and returns fully-composited frames plus per-frame delays.
+// GIF frames are often partial/offset “patches”, so we simulate playback by drawing each frame onto a
+// full-size RGBA canvas (respecting transparency + disposal rules), cloning the canvas after each draw
+// so frames don’t share the same pixel buffer. Delays are in 1/100s (e.g., 5 => 50ms).
+func SplitAnimatedGIF(r io.Reader) (frames []image.Image, delays []int, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("panic while decoding gif: %v", rec)
+		}
+	}()
+
+	g, err := gif.DecodeAll(r)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(g.Image) == 0 {
+		return nil, nil, fmt.Errorf("gif has no frames")
+	}
+
+	w, h := g.Config.Width, g.Config.Height
+	canvasBounds := image.Rect(0, 0, w, h)
+	canvas := image.NewRGBA(canvasBounds)
+
+	// Fill with background color (best-effort)
+	bg := color.RGBA{}
+	if len(g.Image[0].Palette) > 0 && int(g.BackgroundIndex) < len(g.Image[0].Palette) {
+		r0, g0, b0, a0 := g.Image[0].Palette[g.BackgroundIndex].RGBA()
+		bg = color.RGBA{uint8(r0 >> 8), uint8(g0 >> 8), uint8(b0 >> 8), uint8(a0 >> 8)}
+	}
+	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{C: bg}, image.Point{}, draw.Src)
+
+	// Delays: keep same length as frames; if missing, default to 0.
+	delays = make([]int, 0, len(g.Image))
+
+	// For "restore to previous" disposal
+	var prevCanvas *image.RGBA
+
+	for i, src := range g.Image {
+		// Save canvas BEFORE drawing this frame if disposal asks to restore previous
+		if len(g.Disposal) > i && g.Disposal[i] == gif.DisposalPrevious {
+			prevCanvas = cloneRGBA(canvas)
+		} else {
+			prevCanvas = nil
+		}
+
+		// Draw this frame at its own offset (src.Bounds().Min)
+		draw.Draw(canvas, src.Bounds(), src, src.Bounds().Min, draw.Over)
+
+		// Snapshot AFTER drawing (clone!)
+		frames = append(frames, cloneRGBA(canvas))
+
+		// Record delay (1/100s)
+		if len(g.Delay) > i {
+			delays = append(delays, g.Delay[i])
+		} else {
+			delays = append(delays, 0)
+		}
+
+		// Apply disposal for next frame
+		if len(g.Disposal) > i {
+			switch g.Disposal[i] {
+			case gif.DisposalBackground:
+				draw.Draw(canvas, src.Bounds(), &image.Uniform{C: bg}, image.Point{}, draw.Src)
+			case gif.DisposalPrevious:
+				if prevCanvas != nil {
+					canvas = prevCanvas
+				}
+			}
+		}
+	}
+
+	return frames, delays, nil
+}
+
+func cloneRGBA(src *image.RGBA) *image.RGBA {
+	dst := image.NewRGBA(src.Bounds())
+	copy(dst.Pix, src.Pix)
+	return dst
+}
+
+// END GIF LOGIC //
