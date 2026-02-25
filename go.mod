@@ -1,4 +1,4 @@
-module github.com/JoaoGarcia/Mezzotone
+module Mezzotone
 
 go 1.25.6
 

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/JoaoGarcia/Mezzotone/internal/services"
+	"Mezzotone/internal/services"
 )
 
 func mustRenderOptions(

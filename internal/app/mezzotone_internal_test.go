@@ -4,7 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JoaoGarcia/Mezzotone/internal/termtext"
+	"Mezzotone/internal/termtext"
+
 	"github.com/charmbracelet/bubbles/viewport"
 )
 

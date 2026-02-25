@@ -12,10 +12,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/JoaoGarcia/Mezzotone/internal/export"
-	"github.com/JoaoGarcia/Mezzotone/internal/services"
-	"github.com/JoaoGarcia/Mezzotone/internal/termtext"
-	"github.com/JoaoGarcia/Mezzotone/internal/ui"
+	"Mezzotone/internal/export"
+	"Mezzotone/internal/services"
+	"Mezzotone/internal/termtext"
+	"Mezzotone/internal/ui"
+
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
