@@ -43,7 +43,9 @@ type MezzotoneModel struct {
 	helpVisible       bool
 	helpPreviousMenu  int
 	renderContent     string
-	asciiGIFFrames    []ui.AnimationFrame
+
+	renderedImgOutput renderedImgOutput
+	renderedGifOutput renderedGifOutput
 
 	gifAnimation ui.AnimationRenderer
 
@@ -63,6 +65,16 @@ type pngExportDoneMsg struct {
 	err     error
 }
 
+type renderedImgOutput struct {
+	renderedRunes [][]rune
+	renderedColor [][]color.NRGBA
+}
+
+type renderedGifOutput struct {
+	renderedRunes [][][]rune
+	renderedColor [][][]color.NRGBA
+}
+
 type styleVariables struct {
 	windowMargin           int
 	leftColumnWidth        int
@@ -70,6 +82,7 @@ type styleVariables struct {
 }
 
 var renderSettingsItemsSize int
+
 var clipboardOK bool
 var clipboardWrite = clipboard.Write
 var clipboardCommands = [][]string{
@@ -77,6 +90,7 @@ var clipboardCommands = [][]string{
 	{"xclip", "-selection", "clipboard"},
 	{"xsel", "--clipboard", "--input"},
 }
+
 var newUUID = uuid.New
 
 const (
@@ -122,14 +136,14 @@ func NewMezzotoneModel() *MezzotoneModel {
 		Select:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
 	}
 
-	renderView := viewport.New(0, 0)
+	renderViewPort := viewport.New(0, 0)
 	leftColumn := viewport.New(0, 0)
 
 	messageViewPort := viewport.New(0, 3)
 
 	model := &MezzotoneModel{
 		filePicker:        fp,
-		renderView:        renderView,
+		renderView:        renderViewPort,
 		messageViewPort:   messageViewPort,
 		style:             windowStyles,
 		leftColumn:        leftColumn,
@@ -228,17 +242,16 @@ func (m *MezzotoneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				generatedUuid := newUUID()
-				outPpath := filepath.Join(homeDir, "Mezzotone_"+generatedUuid.String()+".txt")
+				outPath := filepath.Join(homeDir, "Mezzotone_"+generatedUuid.String()+".txt")
 
-				err = export.ASCIItToTxT(outPpath, m.renderContent)
+				err = export.ASCIItToTxT(outPath, m.renderContent)
 				if err != nil {
 					m.updateMessageViewPortContent("⚠ "+err.Error(), true)
 					return m, nil
 				}
 
-				m.updateMessageViewPortContent("Successfully exported to "+outPpath+" !", false)
+				m.updateMessageViewPortContent("Successfully exported to "+outPath+" !", false)
 				return m, nil
-
 			}
 		case "i":
 			if m.currentActiveMenu == renderView {
@@ -262,44 +275,57 @@ func (m *MezzotoneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					BG:           color.Black,
 					FG:           color.White,
 					TargetAspect: targetAspect,
+					RenderColor:  m.getRenderColor(),
 				}
+
 				m.updateMessageViewPortContent("Exporting image to "+outPath+" ...", false)
-				return m, exportAsciiToPngCmd(outPath, m.renderContent, exportOptions)
-			}
-		case "g":
-			if m.currentActiveMenu == renderView {
-				homeDir, _ := os.UserHomeDir()
-				generatedUuid := newUUID()
-				outPath := filepath.Join(homeDir, "Mezzotone_"+generatedUuid.String()+".gif")
 
-				fontAspect := 1.0
-				for i := range m.renderSettings.Items {
-					if m.renderSettings.Items[i].Key == "fontAspect" {
-						fontAspect, _ = strconv.ParseFloat(m.renderSettings.Items[i].Value, 2)
+				var render renderedImgOutput
+				if m.renderedImgOutput.renderedRunes == nil {
+					i := m.gifAnimation.GetcurrentFrameIndex()
+					render = renderedImgOutput{
+						renderedRunes: m.renderedGifOutput.renderedRunes[i],
+						renderedColor: m.renderedGifOutput.renderedColor[i],
 					}
+				} else {
+					render = m.renderedImgOutput
 				}
-
-				// Font Aspect is height/width (2.3). Export wants width/height.
-				targetAspect := 1.0 / fontAspect
-
-				exportOptions := export.ASCIIExportOptions{
-					FontSize:     14,
-					DPI:          300,
-					BG:           color.Black,
-					FG:           color.White,
-					TargetAspect: targetAspect,
-				}
-
-				gifFrames := make([]export.ASCIIGIFFrame, 0, len(m.asciiGIFFrames))
-				for _, frame := range m.asciiGIFFrames {
-					gifFrames = append(gifFrames, export.ASCIIGIFFrame{
-						ASCII:    frame.Frame,
-						Duration: frame.Duration,
-					})
-				}
-				m.updateMessageViewPortContent("Exporting gif to "+outPath+" ...", false)
-				return m, exportAsciiToGifCmd(outPath, m.renderContent, gifFrames, exportOptions)
+				return m, exportAsciiToPngCmd(outPath, render, exportOptions)
 			}
+		//case "g":
+		//	if m.currentActiveMenu == renderView {
+		//		homeDir, _ := os.UserHomeDir()
+		//		generatedUuid := newUUID()
+		//		outPath := filepath.Join(homeDir, "Mezzotone_"+generatedUuid.String()+".gif")
+		//
+		//		fontAspect := 1.0
+		//		for i := range m.renderSettings.Items {
+		//			if m.renderSettings.Items[i].Key == "fontAspect" {
+		//				fontAspect, _ = strconv.ParseFloat(m.renderSettings.Items[i].Value, 2)
+		//			}
+		//		}
+		//
+		//		// Font Aspect is height/width (2.3). Export wants width/height.
+		//		targetAspect := 1.0 / fontAspect
+		//
+		//		exportOptions := export.ASCIIExportOptions{
+		//			FontSize:     14,
+		//			DPI:          300,
+		//			BG:           color.Black,
+		//			FG:           color.White,
+		//			TargetAspect: targetAspect,
+		//		}
+		//
+		//		gifFrames := make([]export.ASCIIGIFFrame, 0, len(m.asciiGIFFrames))
+		//		for _, frame := range m.asciiGIFFrames {
+		//			gifFrames = append(gifFrames, export.ASCIIGIFFrame{
+		//				ASCII:    frame.Frame,
+		//				Duration: frame.Duration,
+		//			})
+		//		}
+		//		m.updateMessageViewPortContent("Exporting gif to "+outPath+" ...", false)
+		//		return m, exportAsciiToGifCmd(outPath, m.renderContent, gifFrames, exportOptions)
+		//	}
 		case "h":
 			if m.currentActiveMenu == renderOptionsMenu && m.renderSettings.Editing {
 				break
@@ -375,6 +401,9 @@ func (m *MezzotoneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 							gifRuneArrays = append(gifRuneArrays, runeArray)
 							gifColorArrays = append(gifColorArrays, colorArray)
+
+							m.renderedGifOutput.renderedRunes = append(m.renderedGifOutput.renderedRunes, runeArray)
+							m.renderedGifOutput.renderedColor = append(m.renderedGifOutput.renderedColor, colorArray)
 						}
 
 						var animationFrames []ui.AnimationFrame
@@ -393,9 +422,10 @@ func (m *MezzotoneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						var escapeKeys []string
 						escapeKeys = append(escapeKeys, "esc")
 						gifAnimation := ui.NewAnimationRenderer(animationFrames, escapeKeys)
-
 						m.gifAnimation = gifAnimation
-						m.asciiGIFFrames = animationFrames
+
+						m.renderedImgOutput.renderedRunes = nil
+						m.renderedImgOutput.renderedColor = nil
 
 						return m, m.gifAnimation.StartAnimation
 					}
@@ -414,8 +444,13 @@ func (m *MezzotoneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, cmd
 					}
 
+					m.renderedImgOutput.renderedRunes = runeArray
+					m.renderedImgOutput.renderedColor = colorArray
+
 					m.gifAnimation.StopAnimation()
-					m.asciiGIFFrames = nil
+					m.renderedGifOutput.renderedRunes = nil
+					m.renderedGifOutput.renderedColor = nil
+
 					m.renderContent = services.ImageRuneArrayIntoString(runeArray, colorArray, normalizedOptions.RenderColor)
 					_ = services.Logger().Info(fmt.Sprintf("%s", m.renderContent))
 
@@ -601,6 +636,16 @@ func normalizeRenderOptionsForService(settingsValues []ui.SettingItem) (services
 	return options, nil
 }
 
+func (m *MezzotoneModel) getRenderColor() bool {
+	for _, item := range m.renderSettings.Items {
+		if item.Key == "renderColor" {
+			value, _ := strconv.ParseBool(item.Value)
+			return value
+		}
+	}
+	return false
+}
+
 func (m *MezzotoneModel) incrementCurrentActiveMenu() {
 	m.currentActiveMenu++
 
@@ -781,7 +826,7 @@ func exportAsciiToGifCmd(outPath, renderContent string, frames []export.ASCIIGIF
 	}
 }
 
-func exportAsciiToPngCmd(outPath, renderContent string, exportOptions export.ASCIIExportOptions) tea.Cmd {
+func exportAsciiToPngCmd(outPath string, imgOutput renderedImgOutput, exportOptions export.ASCIIExportOptions) tea.Cmd {
 	return func() (msg tea.Msg) {
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -792,7 +837,7 @@ func exportAsciiToPngCmd(outPath, renderContent string, exportOptions export.ASC
 			}
 		}()
 
-		err := export.ASCIIToPNG(renderContent, outPath, exportOptions)
+		err := export.ASCIIToPNG(imgOutput.renderedRunes, imgOutput.renderedColor, outPath, exportOptions)
 		msg = pngExportDoneMsg{
 			outPath: outPath,
 			err:     err,

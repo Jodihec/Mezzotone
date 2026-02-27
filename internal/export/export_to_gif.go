@@ -151,8 +151,8 @@ func newASCIIRenderer(opt ASCIIExportOptions) (*asciiRenderer, error) {
 	}
 
 	face, err := opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    opt.FontSize,
-		DPI:     opt.DPI,
+		Size:    float64(opt.FontSize),
+		DPI:     float64(opt.DPI),
 		Hinting: font.HintingFull,
 	})
 	if err != nil {

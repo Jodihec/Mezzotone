@@ -371,7 +371,7 @@ func buildAverageColorGrid(inputImg image.Image, cols, rows int) [][]color.NRGBA
 			}
 
 			if sampleCount == 0 {
-				colorGrid[gridRow][gridCol] = color.NRGBA{R: 0, G: 0, B: 0, A: 0}
+				colorGrid[gridRow][gridCol] = color.NRGBA{R: 0, G: 0, B: 0, A: 255}
 			} else {
 				colorGrid[gridRow][gridCol] = color.NRGBA{
 					R: uint8(rSum / sampleCount),
